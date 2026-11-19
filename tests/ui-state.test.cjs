@@ -1,0 +1,17 @@
+// DOM/native decoder stubs: verifies UI state wiring only, not browser behavior.
+const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path');
+const core=require('../js/analysis-core.js'),Controller=require('../js/analysis-controller.js');
+function setup({duration=2,decodeError=false}={}){
+ const nodes=new Map(),events=[];let decodes=0,revoked=0;
+ function element(){return {textContent:'',hidden:false,children:[],handlers:{},setAttribute(){},append(x){this.children.push(x);},replaceChildren(){this.children=[];},addEventListener(k,fn){this.handlers[k]=fn;}};}
+ const get=id=>{if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);};
+ const doc={getElementById:get,createElementNS:element,createElement(tag){if(tag!=='audio')return element();return {duration,load(){},removeAttribute(){},set src(v){queueMicrotask(()=>this.onloadedmetadata());}};}};
+ class Offline {async decodeAudioData(){decodes++;if(decodeError)throw new Error('decoder failed');return {duration,numberOfChannels:1,sampleRate:11025,getChannelData:()=>new Float32Array(Math.round(duration*11025))};}}
+ const c={document:doc,BeatAnalysisCore:core,BeatAnalysisController:Controller,OfflineAudioContext:Offline,URL:{createObjectURL:()=> 'blob:local-test',revokeObjectURL(){revoked++;}},CustomEvent:class {constructor(type,o){this.type=type;this.detail=o.detail;}},setTimeout,clearTimeout,setInterval,clearInterval,queueMicrotask};c.window=c;c.dispatchEvent=e=>events.push(e);vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../js/analysis-ui.js'),'utf8'),c);
+ const file={name:'example.wav',size:1024,arrayBuffer:async()=>new ArrayBuffer(8)};
+ return {c,nodes,events,file,decodes:()=>decodes,revoked:()=>revoked};
+}
+test('UI renders successful silent result, SVG and no fabricated moments',async()=>{const h=setup();assert(await h.c.BeatAnalysis.request(h.file));assert.equal(h.nodes.get('analysisResults').hidden,false);assert.equal(h.nodes.get('analysisProgress').hidden,true);assert.equal(h.nodes.get('analysisTempo').textContent,'不明确');assert(h.nodes.get('analysisReason').textContent.includes('静音'));assert.equal(h.nodes.get('analysisMoments').children.length,1);assert.equal(h.nodes.get('analysisEnergy').children.length,5);assert.equal(h.revoked(),1);assert.equal(h.events.at(-1).detail.status,'ready');});
+test('oversize file fails before metadata/decode and exposes retry',async()=>{const h=setup();assert.equal(await h.c.BeatAnalysis.request({...h.file,size:core.LIMITS.maxBytes+1}),null);assert.equal(h.decodes(),0);assert.equal(h.nodes.get('analysisRetry').hidden,false);assert.equal(h.nodes.get('analysisResults').hidden,true);});
+test('long metadata is rejected before native decode',async()=>{const h=setup({duration:601});assert.equal(await h.c.BeatAnalysis.request(h.file),null);assert.equal(h.decodes(),0);assert.equal(h.revoked(),1);assert(h.nodes.get('analysisStatus').textContent.includes('10 分钟'));});
+test('decode failure is recoverable; retry invokes normal import; cancel clears file',async()=>{const h=setup({decodeError:true});assert.equal(await h.c.BeatAnalysis.request(h.file),null);assert.equal(h.c.BeatAnalysis.state.status,'error');let retry=null;h.c.BeatVision={loadAudioFile:f=>retry=f};h.nodes.get('analysisRetry').handlers.click();assert.equal(retry,h.file);h.c.BeatAnalysis.cancel();retry=null;h.nodes.get('analysisRetry').handlers.click();assert.equal(retry,null);assert.equal(h.c.BeatAnalysis.result,null);});

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>BeatVision · DJ 音乐律动视觉生成器</title>
+  <meta name="description" content="上传你的 DJ 音乐，自动生成跟随节拍与旋律律动的竖屏视觉画面，并导出为可发布到 TikTok 的视频。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><i class="fa-solid fa-wave-square"></i></span>
+      <div>
+        <h1>BeatVision</h1>
+        <p>DJ 音乐律动视觉生成器</p>
+      </div>
+    </div>
+    <p class="privacy"><i class="fa-solid fa-lock"></i> 音频只在你的浏览器本地处理，不会上传</p>
+  </header>
+
+  <main class="app">
+    <!-- 预览舞台 -->
+    <section class="stage" id="stage" aria-label="画面预览">
+      <div class="canvas-area" id="canvasArea">
+        <div class="canvas-wrap" id="canvasWrap">
+          <canvas id="view" aria-label="音乐可视化画面"></canvas>
+
+          <div class="safe-guide" id="safeGuide" hidden aria-hidden="true">
+            <div class="sg sg-top"><span>顶部导航区</span></div>
+            <div class="sg sg-right"><span>按钮区</span></div>
+            <div class="sg sg-bottom"><span>账号 / 文案区</span></div>
+          </div>
+
+          <div class="badge badge-demo" id="demoBadge"><i class="fa-solid fa-wand-magic-sparkles"></i> 演示动画 · 上传音频后跟随你的音乐</div>
+          <div class="badge badge-rec" id="recBadge" hidden><span class="rec-dot"></span><span id="recText">REC 0:00 / 0:30</span></div>
+          <div class="drop-overlay" id="dropOverlay" hidden><i class="fa-solid fa-cloud-arrow-up"></i><span>松开即可载入</span></div>
+        </div>
+      </div>
+
+      <div class="transport">
+        <button class="btn-round" id="btnPlay" type="button" aria-label="播放 / 暂停"><i class="fa-solid fa-play"></i></button>
+        <span class="time" id="timeCur">0:00</span>
+        <input class="seek" id="seek" type="range" min="0" max="1000" value="0" step="1" disabled aria-label="播放进度">
+        <span class="time" id="timeDur">0:00</span>
+        <span class="chip" id="bpmChip" title="自动估算的速度">-- BPM</span>
+        <button class="btn-ghost" id="btnGuide" type="button" title="显示 / 隐藏 TikTok 界面遮挡参考线（不会录进视频）"><i class="fa-solid fa-mobile-screen"></i><span>安全区</span></button>
+      </div>
+    </section>
+
+    <!-- 控制面板 -->
+    <aside class="panel" aria-label="设置">
+
+      <section class="card">
+        <h2><span class="step">1</span>音频</h2>
+        <label class="dropzone" id="dropzone" for="fileAudio">
+          <i class="fa-solid fa-music"></i>
+          <strong id="fileName">点击选择或拖入你的 DJ 音乐</strong>
+          <small>支持 MP3 / WAV / M4A / FLAC / OGG</small>
+        </label>
+        <input id="fileAudio" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg" hidden>
+        <button class="btn-line" id="btnDemo" type="button"><i class="fa-solid fa-drum"></i> 没有音频？先用内置示例节拍试试</button>
+      </section>
+
+      <section class="card analysis-panel" id="analysisPanel" aria-labelledby="analysisHeading">
+        <h2 id="analysisHeading">音频分析 <small>本地 · 只读</small></h2>
+        <p class="hint">先分析音乐，再继续预览。最多 10 分钟 / 48 MiB，支持单声道或双声道。音乐不会发送到服务器。</p>
+        <p id="analysisStatus" role="status" aria-live="polite"></p>
+        <progress id="analysisProgress" max="1" value="0" aria-label="音频分析进度" hidden></progress>
+        <button class="btn-line" id="analysisCancel" type="button" hidden>取消分析</button>
+        <button class="btn-line" id="analysisRetry" type="button" hidden>重试此文件</button>
+        <div id="analysisResults" hidden>
+          <dl class="analysis-summary"><div><dt>总长</dt><dd id="analysisDuration"></dd></div><div><dt>估计 BPM</dt><dd id="analysisTempo"></dd></div></dl>
+          <p id="analysisConfidence"></p><p id="analysisReason" class="hint"></p>
+          <h3>能量分布 · 音频时间</h3>
+          <svg id="analysisEnergy" viewBox="0 0 580 145" role="img" aria-label="整首音频的能量分布，横轴为音频时间，纵轴为 dBFS"></svg>
+          <h3>候选高潮 / 能量变化</h3>
+          <p class="hint">仅根据能量识别的候选区间，不代表精确 Drop 或音乐段落。</p>
+          <ul id="analysisMoments" class="analysis-list"></ul>
+          <details><summary id="analysisBeatCount">节拍时间候选</summary><p class="hint">按音频起点计时；低频起音可能漏检或多检，不补造规则拍点。</p><p id="analysisBeatTimes" class="analysis-times"></p></details>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2><span class="step">2</span>视觉风格</h2>
+        <div class="scene-grid" id="sceneGrid" role="radiogroup" aria-label="视觉场景"></div>
+
+        <h3>配色</h3>
+        <div class="palette-row" id="paletteRow" role="radiogroup" aria-label="配色方案"></div>
+
+        <div class="field">
+          <label for="autoSwitch">按节拍自动切换场景</label>
+          <select id="autoSwitch" data-key="autoSwitch" data-type="number">
+            <option value="0">关闭</option>
+            <option value="8">每 8 拍</option>
+            <option value="16">每 16 拍</option>
+            <option value="32">每 32 拍</option>
+            <option value="64">每 64 拍</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2><span class="step">3</span>画面元素</h2>
+        <div class="toggle-grid">
+          <label class="toggle"><input type="checkbox" data-key="showDisc"><span class="sw"></span>旋转唱片 / 封面</label>
+          <label class="toggle"><input type="checkbox" data-key="showRing"><span class="sw"></span>环形频谱</label>
+          <label class="toggle"><input type="checkbox" data-key="showBars"><span class="sw"></span>底部频谱柱</label>
+          <label class="toggle"><input type="checkbox" data-key="showWave"><span class="sw"></span>波形线</label>
+          <label class="toggle"><input type="checkbox" data-key="showParticles"><span class="sw"></span>节拍粒子</label>
+          <label class="toggle"><input type="checkbox" data-key="showProgress"><span class="sw"></span>进度条</label>
+          <label class="toggle"><input type="checkbox" data-key="showText"><span class="sw"></span>曲名文字</label>
+        </div>
+
+        <div class="field">
+          <label for="title">曲名</label>
+          <input id="title" type="text" data-key="title" maxlength="60" placeholder="例如：Midnight Drive (Original Mix)">
+        </div>
+        <div class="field">
+          <label for="artist">署名</label>
+          <input id="artist" type="text" data-key="artist" maxlength="40" placeholder="例如：DJ 你的名字">
+        </div>
+        <div class="field cover-field">
+          <label>唱片封面</label>
+          <div class="cover-actions">
+            <label class="btn-line small" for="fileCover"><i class="fa-solid fa-image"></i> 选择图片</label>
+            <button class="btn-line small" id="btnCoverClear" type="button" hidden><i class="fa-solid fa-xmark"></i> 移除</button>
+            <input id="fileCover" type="file" accept="image/*" hidden>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2><span class="step">4</span>律动调节</h2>
+        <div class="slider"><label for="react">律动强度</label><input id="react" type="range" min="0.4" max="2" step="0.05" data-key="react"><output data-out="react"></output></div>
+        <div class="slider"><label for="speed">流动速度</label><input id="speed" type="range" min="0.3" max="2.5" step="0.05" data-key="speed"><output data-out="speed"></output></div>
+        <div class="slider"><label for="sens">节拍灵敏度</label><input id="sens" type="range" min="0.5" max="2" step="0.05" data-key="sens"><output data-out="sens"></output></div>
+        <div class="slider"><label for="punch">镜头冲击</label><input id="punch" type="range" min="0" max="2" step="0.05" data-key="punch"><output data-out="punch"></output></div>
+        <div class="slider"><label for="flash">节拍闪光</label><input id="flash" type="range" min="0" max="1" step="0.05" data-key="flash"><output data-out="flash"></output></div>
+        <div class="slider"><label for="melody">旋律变色</label><input id="melody" type="range" min="0" max="1.5" step="0.05" data-key="melody"><output data-out="melody"></output></div>
+        <p class="hint">「节拍灵敏度」：鼓点没被抓到就调高，画面乱闪就调低。「旋律变色」：颜色跟随旋律音高的高低流动。</p>
+      </section>
+
+      <section class="card" id="exportCard">
+        <h2><span class="step">5</span>导出视频</h2>
+        <div class="grid-3 lock-on-rec">
+          <div class="field">
+            <label for="ratio">比例</label>
+            <select id="ratio" data-key="ratio">
+              <option value="9:16">9:16 竖屏</option>
+              <option value="1:1">1:1 方形</option>
+              <option value="16:9">16:9 横屏</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="res">清晰度</label>
+            <select id="res" data-key="res" data-type="number">
+              <option value="1080">1080p</option>
+              <option value="720">720p</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="fps">帧率</label>
+            <select id="fps" data-key="fps" data-type="number">
+              <option value="30">30 fps</option>
+              <option value="60">60 fps</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid-2 lock-on-rec">
+          <div class="field">
+            <label for="clipStart">片段起点</label>
+            <div class="inline">
+              <input id="clipStart" type="text" inputmode="numeric" value="0:00" aria-describedby="clipHint">
+              <button class="btn-line small" id="btnUseCur" type="button" title="把当前播放位置设为起点"><i class="fa-solid fa-location-crosshairs"></i></button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="clipDur">片段时长</label>
+            <select id="clipDur" data-key="clipDur" data-type="number">
+              <option value="15">15 秒</option>
+              <option value="30">30 秒</option>
+              <option value="60">60 秒</option>
+              <option value="90">90 秒</option>
+              <option value="0">到曲终</option>
+            </select>
+          </div>
+        </div>
+        <label class="toggle lock-on-rec"><input type="checkbox" data-key="fade"><span class="sw"></span>片尾淡出（画面 + 声音）</label>
+
+        <p class="hint" id="clipHint">输出：<b id="sizeLabel">1080×1920</b> · <span id="formatLabel">检测中…</span></p>
+
+        <button class="btn-primary" id="btnRec" type="button"><i class="fa-solid fa-circle"></i> 开始录制视频</button>
+        <div class="rec-actions" id="recActions" hidden>
+          <button class="btn-primary stop" id="btnRecStop" type="button"><i class="fa-solid fa-stop"></i> 停止并保存</button>
+          <button class="btn-line" id="btnRecCancel" type="button">取消</button>
+        </div>
+        <ul class="tips">
+          <li>录制是实时的：30 秒片段需要 30 秒。</li>
+          <li>录制期间请保持本页面在前台，否则画面会卡顿。</li>
+          <li>录制中仍可切换场景和配色，像 VJ 一样现场控制。</li>
+        </ul>
+      </section>
+    </aside>
+  </main>
+
+  <!-- 导出结果 -->
+  <div class="modal" id="resultModal" hidden role="dialog" aria-modal="true" aria-labelledby="resultTitle">
+    <div class="modal-box">
+      <h2 id="resultTitle"><i class="fa-solid fa-circle-check"></i> 视频已生成</h2>
+      <video id="resultVideo" controls playsinline webkit-playsinline></video>
+      <p class="hint" id="resultInfo"></p>
+      <p class="hint warn" id="resultWarn" hidden></p>
+      <div class="modal-actions">
+        <a class="btn-primary" id="resultDownload" download><i class="fa-solid fa-download"></i> 下载视频</a>
+        <button class="btn-line" id="resultClose" type="button">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/audio.js"></script>
+  <script src="js/demo.js"></script>
+  <script src="js/shaders.js"></script>
+  <script src="js/visuals.js"></script>
+  <script src="js/analysis-core.js"></script>
+  <script src="js/analysis-controller.js"></script>
+  <script src="js/analysis-ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
